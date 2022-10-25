@@ -29,9 +29,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
                     default='../data/2018LA_Seg_Training Set/', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='LA/DTC_with_consis_weight', help='model_name')
+                    default='LA/LDC_with_consis_weight', help='model_name')
+parser.add_argument('--exp_tmp', type=str,
+                    default='LA/LDC_Tmp', help='model_name')
 parser.add_argument('--max_iterations', type=int,
-                    default=6000, help='maximum epoch number to train')
+                    default=6000, help='maximum iter number to train')
 parser.add_argument('--batch_size', type=int, default=4,
                     help='batch_size per gpu')
 parser.add_argument('--labeled_bs', type=int, default=2,
@@ -71,13 +73,19 @@ parser.add_argument('--detail', type=int,  default=1,
                     help='print metrics for every samples?')
 parser.add_argument('--nms', type=int, default=0,
                     help='apply NMS post-procssing?')
+parser.add_argument('--N_pth', type=int, default=3,
+                    help='last N_pth')
+
 
 args = parser.parse_args()
 
 train_data_path = args.root_path
-snapshot_path = "../model/" + args.exp + \
-    "_{}labels_beta_{}/".format(
-        args.labelnum, args.beta)
+# snapshot_path = "../model/" + args.exp + \
+#     "_{}labels_beta_{}/".format(
+#         args.labelnum, args.beta)
+
+snapshot_path = "../model/" + args.exp
+tmp_model_pth = "../model/" + args.exp_tmp
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 batch_size = args.batch_size * len(args.gpu.split(','))  # 4 * 1 = 4
@@ -109,6 +117,9 @@ if __name__ == "__main__":
     # make logger file
     if not os.path.exists(snapshot_path):
         os.makedirs(snapshot_path)
+
+    if not os.path.exists(tmp_model_pth):
+        os.makedirs(tmp_model_pth)
     if os.path.exists(snapshot_path + '/code'):
         shutil.rmtree(snapshot_path + '/code')
     shutil.copytree('.', snapshot_path + '/code', shutil.ignore_patterns(['.git', '__pycache__']))
@@ -333,11 +344,17 @@ if __name__ == "__main__":
                 grid_image = make_grid(image, 5, normalize=False)
                 writer.add_image('aux_train/body_detail_map', grid_image, iter_num)
                 
-            # change lr
-            if iter_num % 2500 == 0:
-                lr_ = base_lr * 0.1 ** (iter_num // 2500)
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] = lr_
+            # # change lr (mile stone)
+            # if iter_num % 2500 == 0:
+            #     lr_ = base_lr * 0.1 ** (iter_num // 2500)
+            #     for param_group in optimizer.param_groups:
+            #         param_group['lr'] = lr_
+
+            # change lr (poly policy)
+            lr_ = base_lr * (1 - iter_num / args.max_iterations) ** 0.9
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr_
+
             if iter_num % 1000 == 0:
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
@@ -348,10 +365,14 @@ if __name__ == "__main__":
                 break
             time1 = time.time()
 
-        # val
-        if epoch_num % 15 == 0 or epoch_num > 360:
-        # if (iter_num + 1) % 1 == 0:
-        # if epoch_num > 520:
+        # save last N epoch models
+        if epoch_num > max_epoch - args.N_pth - 1:
+            save_mode_path = os.path.join(
+                    tmp_model_pth, 'epoch_' + str(epoch_num) + '.pth')
+            torch.save(model.state_dict(), save_mode_path)
+
+        # val every 15 epoches
+        if epoch_num % 15 == 0:
 
             model.eval()
             torch.cuda.empty_cache()
@@ -363,14 +384,15 @@ if __name__ == "__main__":
 
             avg_metric, pred, score, label = test_show_all_case_t(model, image_list, num_classes=num_classes,
                                        patch_size=(112, 112, 80), stride_xy=18, stride_z=4,
-                                       save_result=True, test_save_path=test_save_path,
+                                       save_result=False, test_save_path=test_save_path,
                                        metric_detail=args.detail, nms=args.nms)
 
-            if dice_tmp < avg_metric[0]:
-                dice_tmp = avg_metric[0]
-                save_mode_path = os.path.join(
-                    snapshot_path, 'best' + '.pth')
-                torch.save(model.state_dict(), save_mode_path)
+            # # to save the best result
+            # if dice_tmp < avg_metric[0]:
+            #     dice_tmp = avg_metric[0]
+            #     save_mode_path = os.path.join(
+            #         snapshot_path, 'best' + '.pth')
+            #     torch.save(model.state_dict(), save_mode_path)
 
             writer.add_scalar('val_results/Dice', avg_metric[0], iter_num)
             writer.add_scalar('val_results/Jaccard', avg_metric[1], iter_num)

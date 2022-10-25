@@ -1,0 +1,1 @@
+the median model obtained by LDC will be generated at this folder

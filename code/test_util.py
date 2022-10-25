@@ -38,7 +38,7 @@ def save_all_cases(net, image_list, num_classes, patch_size=(112, 112, 80), stri
             h5f_s = h5py.File((pseudo_save_pth + 'mri_norm2.h5'), 'w')
             h5f_s['image'] = image
             h5f_s['label'] = prediction.astype(np.uint8)
-            # h5f_s['socre'] = score_map  # c=2 x y z
+            # h5f_s['score'] = score_map  # c=2 x y z
             print(image_path,'has been predicted and saved')
 
         ith += 1
@@ -65,7 +65,7 @@ def save_all_cases_t(net, image_list, num_classes, patch_size=(112, 112, 80), st
             h5f_s['image'] = image
             h5f_s['label'] = prediction.astype(np.uint8)
             # h5f_s['label'] = prediction.astype(np.float32)
-            h5f_s['socre'] = score_map  # c=2 x y z
+            h5f_s['score'] = score_map  # c=2 x y z
             print(image_path,'has been predicted and saved')
 
         ith += 1

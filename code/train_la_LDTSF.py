@@ -28,9 +28,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
                     default='../data/2018LA_Seg_PseudoTraining Set/', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='LA/DTC_with_consis_weight', help='model_name')
+                    default='LA/LDTSF_with_consis_weight', help='model_name')
 parser.add_argument('--max_iterations', type=int,
-                    default=6000, help='maximum epoch number to train')
+                    default=6000, help='maximum iter number to train')
 parser.add_argument('--batch_size', type=int, default=4,
                     help='batch_size per gpu')
 parser.add_argument('--labeled_bs', type=int, default=2,
@@ -120,6 +120,10 @@ if __name__ == "__main__":
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(str(args))
 
+    with open(args.root_path + '/train.list', 'r') as f:
+        pseudo_lists = f.readlines()
+        len_pseudo = len(pseudo_lists)
+
     def create_model(ema=False):
         # Network definition
         net = VNet(n_channels=1, n_classes=num_classes-1,           # TODO ori = 1 with sigmoid
@@ -140,9 +144,10 @@ if __name__ == "__main__":
                            ToTensor(),
                        ]))
 
-    labelnum = args.labelnum    # default 16
-    labeled_idxs = list(range(labelnum))            # 0-16
-    unlabeled_idxs = list(range(labelnum, 80))      # 16-80
+    labelnum = args.labelnum                                # default 16
+    labeled_idxs = list(range(labelnum))                    # 0-16
+    unlabeled_idxs = list(range(labelnum, len_pseudo))      # 16-len_pseudo  TODO --------------
+
     batch_sampler = TwoStreamBatchSampler(          #
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-labeled_bs)  # 16 80 4 2
 
@@ -344,16 +349,17 @@ if __name__ == "__main__":
                 grid_image = make_grid(image, 5, normalize=False)
                 writer.add_image('aux_train/body_detail_map', grid_image, iter_num)
 
-            # change lr
-
+            # change lr (poly policy)
             lr_ = base_lr * (1 - iter_num / args.max_iterations)**0.9
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr_
 
+            # change lr(mile_stone)
             # if iter_num % 2500 == 0:
             #     lr_ = base_lr * 0.1 ** (iter_num // 2500)
             #     for param_group in optimizer.param_groups:
             #         param_group['lr'] = lr_
+
             if iter_num % 1000 == 0:
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
@@ -364,10 +370,8 @@ if __name__ == "__main__":
                 break
             time1 = time.time()
 
-        # val
-        if epoch_num % 15 == 0 or iter_num>1900:
-        # if epoch_num % 15 == 0 or epoch_num > 350:
-        # if (iter_num + 1) % 1 == 0:
+        # val every 15 epoches
+        if epoch_num % 15 == 0:
 
             model.eval()
             torch.cuda.empty_cache()
@@ -379,19 +383,15 @@ if __name__ == "__main__":
 
             avg_metric, pred, score, label = test_show_all_case_t(model, image_list, num_classes=num_classes,
                                        patch_size=(112, 112, 80), stride_xy=18, stride_z=4,
-                                       save_result=True, test_save_path=test_save_path,
+                                       save_result=False, test_save_path=test_save_path,
                                        metric_detail=args.detail, nms=args.nms)
 
-            if avg_metric[0] > 0.9:
-                save_mode_path = os.path.join(
-                    snapshot_path, 'iter_' + str(iter_num) + '.pth')
-                torch.save(model.state_dict(), save_mode_path)
-
-            if dice_tmp < avg_metric[0]:
-                dice_tmp = avg_metric[0]
-                save_mode_path = os.path.join(
-                    snapshot_path, 'best' + '.pth')
-                torch.save(model.state_dict(), save_mode_path)
+            # # To save the best result
+            # if dice_tmp < avg_metric[0]:
+            #     dice_tmp = avg_metric[0]
+            #     save_mode_path = os.path.join(
+            #         snapshot_path, 'best' + '.pth')
+            #     torch.save(model.state_dict(), save_mode_path)
 
             writer.add_scalar('val_results/Dice', avg_metric[0], iter_num)
             writer.add_scalar('val_results/Jaccard', avg_metric[1], iter_num)

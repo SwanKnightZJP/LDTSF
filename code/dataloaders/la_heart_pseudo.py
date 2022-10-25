@@ -36,8 +36,8 @@ class LAHeart(Dataset):
         image_name = self.image_list[idx]
         h5f = h5py.File(self._base_dir+"/"+image_name+"/mri_norm2.h5", 'r')
         image = h5f['image'][:]  # x y z
-        if 'socre' in h5f:
-            label = h5f['socre'][0, ...].astype(np.float32)   # 2 x y z - x y z
+        if 'score' in h5f:
+            label = h5f['score'][0, ...].astype(np.float32)   # 2 x y z - x y z
         else:
             label = h5f['label'][:].astype(np.float32)   # x y z
         sample = {'image': image, 'label': label}
