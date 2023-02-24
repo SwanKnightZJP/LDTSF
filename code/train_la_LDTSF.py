@@ -196,7 +196,7 @@ if __name__ == "__main__":
             volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
             outputs_tanh, outputs, out_body, out_detail = model(volume_batch)  # 4 1 112 112 80
             outputs_soft = torch.sigmoid(outputs)
-
+            out_detail[out_detail == 1] = 0
             body_detail = out_body + out_detail
 
             # calculate the loss
