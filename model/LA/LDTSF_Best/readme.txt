@@ -1,1 +1,1 @@
-the best model obtained by LDTSF should be moved to this folder
+the best model trained by LDTSF should be moved to this folder
