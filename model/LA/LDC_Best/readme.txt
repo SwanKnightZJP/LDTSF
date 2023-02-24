@@ -1,1 +1,1 @@
-the best model obtained by LDC should be moved to this folder
+the best model trained by LDC should be moved to this folder
