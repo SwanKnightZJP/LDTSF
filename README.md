@@ -3,8 +3,8 @@ Code for the paper: LDTSF: A Label-decoupling Teacher-student Framework for Semi
 
 # Requirements
 Some important requires packages includes:
-* [Pytorch][torch_link] version >=0.11.0.
-* TensorBoardX
+* [Pytorch][torch_link] version >=1.10.0
+* torchvision >=0.11.0
 * Python == 3.8 
 * Some basic python packages such as Numpy, Scikit-image, SimpleITK, Scipy ......
 
