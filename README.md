@@ -19,7 +19,7 @@ git clone https://github.com/SwanKnightZJP/LDTSF
 cd LDTSF
 ```
 2. Put the data in [data/2018LA_Seg_Training Set](https://github.com/Luoxd1996/DTC/tree/master/data/2018LA_Seg_Training%20Set).
-3. Train the LDC model first. The trained model will be saved at ../model/LA/LDC_with_consis_weight (and our best model is saved at ../model/LA/LDC_Best)
+3. Train the LDC model first. The trained model will be saved at ../model/LA/LDC_with_consis_weight
 ```
 cd code
 python train_la_LDC.py
