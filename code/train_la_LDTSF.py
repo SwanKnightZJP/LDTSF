@@ -29,6 +29,8 @@ parser.add_argument('--root_path', type=str,
                     default='../data/2018LA_Seg_PseudoTraining Set/', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
                     default='LA/LDTSF_with_consis_weight', help='model_name')
+parser.add_argument('--exp_best', type=str,
+                    default='LA/LDTSF_Best', help='model_name')
 parser.add_argument('--max_iterations', type=int,
                     default=6000, help='maximum iter number to train')
 parser.add_argument('--batch_size', type=int, default=4,
@@ -77,9 +79,11 @@ parser.add_argument('--semi_beta', type=float,  default=0.25,
 args = parser.parse_args()
 
 train_data_path = args.root_path
-snapshot_path = "../model/" + args.exp + \
-    "_{}labels_beta_{}/".format(
-        args.labelnum, args.beta)
+# snapshot_path = "../model/" + args.exp + \
+#     "_{}labels_beta_{}/".format(
+#         args.labelnum, args.beta)
+snapshot_path = "../model/" + args.exp
+snapshot_best_path = "../model/" + args.exp_best
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 batch_size = args.batch_size * len(args.gpu.split(','))  # 4 * 1 = 4
@@ -108,6 +112,8 @@ def get_current_consistency_weight(epoch):
 
 
 if __name__ == "__main__":
+    if not os.path.exists(snapshot_best_path):
+        os.makedirs(snapshot_best_path)
     # make logger file
     if not os.path.exists(snapshot_path):
         os.makedirs(snapshot_path)
@@ -126,7 +132,7 @@ if __name__ == "__main__":
 
     def create_model(ema=False):
         # Network definition
-        net = VNet(n_channels=1, n_classes=num_classes-1,           # TODO ori = 1 with sigmoid
+        net = VNet(n_channels=1, n_classes=num_classes-1,           #
                    normalization='batchnorm', has_dropout=True)
         model = net.cuda()
         if ema:
@@ -146,7 +152,7 @@ if __name__ == "__main__":
 
     labelnum = args.labelnum                                # default 16
     labeled_idxs = list(range(labelnum))                    # 0-16
-    unlabeled_idxs = list(range(labelnum, len_pseudo))      # 16-len_pseudo  TODO --------------
+    unlabeled_idxs = list(range(labelnum, len_pseudo))      # 16-len_pseudo
 
     batch_sampler = TwoStreamBatchSampler(          #
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-labeled_bs)  # 16 80 4 2
@@ -217,26 +223,27 @@ if __name__ == "__main__":
 
             dis_to_mask = torch.sigmoid(-1500*outputs_tanh)
             body_to_mask = torch.tanh(1500 * out_body)
-            detail_to_mask = out_detail  # TODO
-            body_detail_mask = torch.tanh(body_detail)
+            detail_to_mask = out_detail
+            body_detail_mask = body_detail
+            # body_detail_mask = torch.tanh(body_detail)
 
             consistency_loss_dis = torch.mean((dis_to_mask - outputs_soft) ** 2)  # unsupervised data used
             consistency_loss_body = torch.mean((body_to_mask - outputs_soft) ** 2)  # unsupervised data used
             consistency_loss_detail = torch.mean((detail_to_mask - outputs_soft) ** 2)  # unsupervised data used
 
-            consistency_loss_body_detail =  torch.mean((body_detail_mask - outputs_soft) ** 2)
+            consistency_loss_body_detail = torch.mean((body_detail_mask - outputs_soft) ** 2)
 
             supervised_loss = loss_seg_dice + args.beta * (2 * loss_sdf + loss_body + loss_detail) / 4
             consistency_weight = get_current_consistency_weight(iter_num // 150)
 
-            # TODO semi_loss added ------------------------------------------------------------------------------ #
+            # semi_loss added ------------------------------------------------------------------------------ #
             loss_seg_ce_pseudo = ce_loss(  # supervised loss
                 outputs[labeled_bs + 1:, 0, ...], label_batch[labeled_bs + 1:].float())
             loss_seg_dice_pseudo = losses.dice_loss(                                               # supervised loss
                 outputs_soft[labeled_bs + 1:, 0, :, :, :], label_batch[labeled_bs + 1:, ...])
             # semi_loss = loss_seg_dice_pseudo + loss_seg_ce_pseudo
             semi_loss = loss_seg_dice_pseudo
-            # TODO semi_loss added ------------------------------------------------------------------------------ #
+            # semi_loss added ------------------------------------------------------------------------------ #
 
             weight_beta = args.semi_beta * (1-consistency_weight)
 
@@ -349,16 +356,16 @@ if __name__ == "__main__":
                 grid_image = make_grid(image, 5, normalize=False)
                 writer.add_image('aux_train/body_detail_map', grid_image, iter_num)
 
-            # change lr (poly policy)
-            lr_ = base_lr * (1 - iter_num / args.max_iterations)**0.9
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr_
+            # change lr(mile_stone) used in LA dataset
+            if iter_num % 2500 == 0:
+                lr_ = base_lr * 0.1 ** (iter_num // 2500)
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr_
 
-            # change lr(mile_stone)
-            # if iter_num % 2500 == 0:
-            #     lr_ = base_lr * 0.1 ** (iter_num // 2500)
-            #     for param_group in optimizer.param_groups:
-            #         param_group['lr'] = lr_
+            # change lr (poly policy) used in Echo dataset
+            # lr_ = base_lr * (1 - iter_num / args.max_iterations)**0.9
+            # for param_group in optimizer.param_groups:
+            #     param_group['lr'] = lr_
 
             if iter_num % 1000 == 0:
                 save_mode_path = os.path.join(
@@ -386,12 +393,12 @@ if __name__ == "__main__":
                                        save_result=False, test_save_path=test_save_path,
                                        metric_detail=args.detail, nms=args.nms)
 
-            # # To save the best result
-            # if dice_tmp < avg_metric[0]:
-            #     dice_tmp = avg_metric[0]
-            #     save_mode_path = os.path.join(
-            #         snapshot_path, 'best' + '.pth')
-            #     torch.save(model.state_dict(), save_mode_path)
+            # To save the best result
+            if dice_tmp < avg_metric[0]:
+                dice_tmp = avg_metric[0]
+                best_mode_path = os.path.join(
+                    snapshot_best_path, 'best' + '.pth')
+                torch.save(model.state_dict(), best_mode_path)
 
             writer.add_scalar('val_results/Dice', avg_metric[0], iter_num)
             writer.add_scalar('val_results/Jaccard', avg_metric[1], iter_num)
@@ -416,4 +423,5 @@ if __name__ == "__main__":
         if iter_num >= max_iterations:
             iterator.close()
             break
+
     writer.close()

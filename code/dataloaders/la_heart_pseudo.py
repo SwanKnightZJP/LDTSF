@@ -177,6 +177,7 @@ class ToTensor(object):
             # return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long()}
             return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label'])}
 
+
 class TwoStreamBatchSampler(Sampler):
     """Iterate two sets of indices
 
@@ -194,7 +195,7 @@ class TwoStreamBatchSampler(Sampler):
         assert len(self.secondary_indices) >= self.secondary_batch_size > 0
 
     def __iter__(self):
-        primary_iter = iterate_once(self.primary_indices)                   # 随机打乱当前 list
+        primary_iter = iterate_once(self.primary_indices)                   # Random shuffling
         secondary_iter = iterate_eternally(self.secondary_indices)
         return (
             primary_batch + secondary_batch
@@ -206,6 +207,7 @@ class TwoStreamBatchSampler(Sampler):
     def __len__(self):
         return len(self.primary_indices) // self.primary_batch_size  # 16 / 2 = 8
 
+
 def iterate_once(iterable):
     return np.random.permutation(iterable)
 
@@ -214,11 +216,11 @@ def iterate_eternally(indices):
     def infinite_shuffles():
         while True:
             yield np.random.permutation(indices)
-    return itertools.chain.from_iterable(infinite_shuffles())  # 将 多个迭代器拼接为一个统一的迭代器
+    return itertools.chain.from_iterable(infinite_shuffles())  # Concatenates multiple iterators into a unified iterator
 
 
 def grouper(iterable, n):
-    "Collect data into fixed-length chunks or blocks"
+    """Collect data into fixed-length chunks or blocks"""
     # grouper('ABCDEFG', 3) --> ABC DEF"
     args = [iter(iterable)] * n
     return zip(*args)

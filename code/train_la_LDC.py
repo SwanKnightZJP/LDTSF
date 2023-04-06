@@ -32,6 +32,8 @@ parser.add_argument('--exp', type=str,
                     default='LA/LDC_with_consis_weight', help='model_name')
 parser.add_argument('--exp_tmp', type=str,
                     default='LA/LDC_Tmp', help='model_name')
+parser.add_argument('--exp_best', type=str,
+                    default='LA/LDC_Best', help='model_name')
 parser.add_argument('--max_iterations', type=int,
                     default=6000, help='maximum iter number to train')
 parser.add_argument('--batch_size', type=int, default=4,
@@ -76,7 +78,6 @@ parser.add_argument('--nms', type=int, default=0,
 parser.add_argument('--N_pth', type=int, default=3,
                     help='last N_pth')
 
-
 args = parser.parse_args()
 
 train_data_path = args.root_path
@@ -86,6 +87,7 @@ train_data_path = args.root_path
 
 snapshot_path = "../model/" + args.exp
 tmp_model_pth = "../model/" + args.exp_tmp
+snapshot_best_path = "../model/" + args.exp_best
 
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 batch_size = args.batch_size * len(args.gpu.split(','))  # 4 * 1 = 4
@@ -114,6 +116,8 @@ def get_current_consistency_weight(epoch):
 
 
 if __name__ == "__main__":
+    if not os.path.exists(snapshot_best_path):
+        os.makedirs(snapshot_best_path)
     # make logger file
     if not os.path.exists(snapshot_path):
         os.makedirs(snapshot_path)
@@ -149,17 +153,16 @@ if __name__ == "__main__":
                            ToTensor(),
                        ]))
 
-    labelnum = args.labelnum    # default 16
-    labeled_idxs = list(range(labelnum))            # 0-16
-    unlabeled_idxs = list(range(labelnum, 80))      # 16-80
-    batch_sampler = TwoStreamBatchSampler(          #
-        labeled_idxs, unlabeled_idxs, batch_size, batch_size-labeled_bs)  # 16 80 4 2
+    labelnum = args.labelnum                                                # default 16
+    labeled_idxs = list(range(labelnum))                                    # 0-16
+    unlabeled_idxs = list(range(labelnum, 80))                              # 16-80
+    batch_sampler = TwoStreamBatchSampler(labeled_idxs,
+                                          unlabeled_idxs, batch_size, batch_size-labeled_bs)    # 16 80 4 2
 
     def worker_init_fn(worker_id):
         random.seed(args.seed+worker_id)
     trainloader = DataLoader(db_train, batch_sampler=batch_sampler,
                              num_workers=4, pin_memory=True, worker_init_fn=worker_init_fn)
-
 
     optimizer = optim.SGD(model.parameters(), lr=base_lr,
                           momentum=0.9, weight_decay=0.0001)
@@ -222,15 +225,15 @@ if __name__ == "__main__":
 
             dis_to_mask = torch.sigmoid(-1500*outputs_tanh)
             body_to_mask = torch.tanh(1500*out_body)
-            detail_to_mask = out_detail  # TODO
+            detail_to_mask = out_detail
+            body_detail_mask = body_detail
+            # body_detail_mask = torch.tanh(body_detail)
 
-            body_detail_mask = torch.tanh(body_detail)
+            consistency_loss_dis = torch.mean((dis_to_mask - outputs_soft) ** 2)             # unsupervised data used
+            consistency_loss_body = torch.mean((body_to_mask - outputs_soft) ** 2)
+            consistency_loss_detail = torch.mean((detail_to_mask - outputs_soft) ** 2)
 
-            consistency_loss_dis = torch.mean((dis_to_mask - outputs_soft) ** 2)                # unsupervised data used
-            consistency_loss_body = torch.mean((body_to_mask - outputs_soft) ** 2)                # unsupervised data used
-            consistency_loss_detail = torch.mean((detail_to_mask - outputs_soft) ** 2)                # unsupervised data used
-
-            consistency_loss_body_detail =  torch.mean((body_detail_mask - outputs_soft) ** 2)
+            consistency_loss_body_detail = torch.mean((body_detail_mask - outputs_soft) ** 2)
 
             # supervised_loss = loss_seg_dice + args.beta * (loss_sdf + loss_body + loss_detail) / 3
             supervised_loss = loss_seg_dice + args.beta * (2 * loss_sdf + loss_body + loss_detail) / 4
@@ -270,7 +273,6 @@ if __name__ == "__main__":
             writer.add_scalar('aux_loss/consistency_loss_body_detail',
                               consistency_loss_body_detail, iter_num)
 
-
             logging.info(
                 'iteration %d : loss : %f, loss_consis: %f, loss_haus: %f, loss_seg: %f, loss_dice: %f' %
                 (iter_num, loss.item(), consistency_loss_dis.item(), loss_sdf.item(),
@@ -302,7 +304,6 @@ if __name__ == "__main__":
                     3, 0, 1, 2).repeat(1, 3, 1, 1)
                 grid_image = make_grid(image, 5, normalize=False)
                 writer.add_image('aux_train/Detail2Mask', grid_image, iter_num)
-
 
                 image = outputs_tanh[0, 0:1, :, :, 20:61:10].permute(
                     3, 0, 1, 2).repeat(1, 3, 1, 1)
@@ -344,16 +345,16 @@ if __name__ == "__main__":
                 grid_image = make_grid(image, 5, normalize=False)
                 writer.add_image('aux_train/body_detail_map', grid_image, iter_num)
                 
-            # # change lr (mile stone)
-            # if iter_num % 2500 == 0:
-            #     lr_ = base_lr * 0.1 ** (iter_num // 2500)
-            #     for param_group in optimizer.param_groups:
-            #         param_group['lr'] = lr_
+            # # change lr (mile stone) used in LA dataset
+            if iter_num % 2500 == 0:
+                lr_ = base_lr * 0.1 ** (iter_num // 2500)
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = lr_
 
-            # change lr (poly policy)
-            lr_ = base_lr * (1 - iter_num / args.max_iterations) ** 0.9
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr_
+            # # change lr (poly policy) used in Echo dataset
+            # lr_ = base_lr * (1 - iter_num / args.max_iterations) ** 0.9
+            # for param_group in optimizer.param_groups:
+            #     param_group['lr'] = lr_
 
             if iter_num % 1000 == 0:
                 save_mode_path = os.path.join(
@@ -387,12 +388,12 @@ if __name__ == "__main__":
                                        save_result=False, test_save_path=test_save_path,
                                        metric_detail=args.detail, nms=args.nms)
 
-            # # to save the best result
-            # if dice_tmp < avg_metric[0]:
-            #     dice_tmp = avg_metric[0]
-            #     save_mode_path = os.path.join(
-            #         snapshot_path, 'best' + '.pth')
-            #     torch.save(model.state_dict(), save_mode_path)
+            # to save the best result
+            if dice_tmp < avg_metric[0]:
+                dice_tmp = avg_metric[0]
+                best_mode_path = os.path.join(
+                    snapshot_best_path, 'best' + '.pth')
+                torch.save(model.state_dict(), best_mode_path)
 
             writer.add_scalar('val_results/Dice', avg_metric[0], iter_num)
             writer.add_scalar('val_results/Jaccard', avg_metric[1], iter_num)
@@ -417,4 +418,12 @@ if __name__ == "__main__":
         if iter_num >= max_iterations:
             iterator.close()
             break
+
+    try:
+        best_mode_path                              # if the best LDC pth file exist, copy it to the tmp_folder
+    except NameError:
+        best_mode_path_exists = False
+    else:
+        shutil.copy(best_mode_path, tmp_model_pth)
+
     writer.close()

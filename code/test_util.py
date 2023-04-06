@@ -13,8 +13,14 @@ from skimage.measure import label
 
 def getLargestCC(segmentation):
     labels = label(segmentation)
-    assert(labels.max() != 0)  # assume at least 1 CC
-    largestCC = labels == np.argmax(np.bincount(labels.flat)[1:])+1
+    # assert(labels.max() != 0)  # assume at least 1 CC
+    # largestCC = labels == np.argmax(np.bincount(labels.flat)[1:])+1
+    # # Since some poor model may lose all their prediction areas during generating pseudo labels,
+    # # this section has been modified to avoid possible errors.
+    if labels.max() != 0:
+        largestCC = labels == np.argmax(np.bincount(labels.flat)[1:]) + 1
+    else:
+        largestCC = labels
     return largestCC
 
 
@@ -30,7 +36,7 @@ def save_all_cases(net, image_list, num_classes, patch_size=(112, 112, 80), stri
         prediction, score_map = test_single_case(
                     net, image, stride_xy, stride_z, patch_size, num_classes=num_classes)
         if nms:
-            prediction = getLargestCC(prediction)   # TODO 连通域判断寻找最大的单个轮廓区域
+            prediction = getLargestCC(prediction)                 # Connected domain judgment to find the largest label
         if save_result:
             pseudo_save_pth = test_save_path + img_id + '/'
             if not os.path.exists(pseudo_save_pth):
@@ -56,9 +62,9 @@ def save_all_cases_t(net, image_list, num_classes, patch_size=(112, 112, 80), st
         prediction, score_map = test_single_case_t(
                     net, image, stride_xy, stride_z, patch_size, num_classes=num_classes)
         if nms:
-            prediction = getLargestCC(prediction)   # TODO 连通域判断寻找最大的单个轮廓区域
+            prediction = getLargestCC(prediction)                  # Connected domain judgment to find the largest label
         if save_result:
-            pseudo_save_pth = test_save_path + img_id + '/'
+            pseudo_save_pth = test_save_path + '/' + img_id + '/'  # fixed path error
             if not os.path.exists(pseudo_save_pth):
                 os.makedirs(pseudo_save_pth)
             h5f_s = h5py.File((pseudo_save_pth + 'mri_norm2.h5'), 'w')
@@ -192,7 +198,6 @@ def test_show_all_case_t(net, image_list, num_classes, patch_size=(112, 112, 80)
     print('average metric is {}'.format(avg_metric))
 
     return avg_metric, prediction, score_map, label.astype(np.float32)
-
 
 
 def test_single_case(net, image, stride_xy, stride_z, patch_size, num_classes=1):
